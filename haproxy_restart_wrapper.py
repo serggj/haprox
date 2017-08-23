@@ -43,9 +43,10 @@ def get_params():
     parser.add_argument(
         "-f", "--config-file",
         dest="config_file",
-        default='config.yml',
+        default='/etc/haproxy_restart_wrapper/config.yml',
         metavar='config.yml',
-        help="path to user config.\nDefault config.yml")
+        help="path to user config.\n" \
+             "Default /etc/haproxy_restart_wrapper/config.yml")
 
     args = parser.parse_args()
     return args

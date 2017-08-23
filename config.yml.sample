@@ -1,12 +1,12 @@
 ---
 haproxy_params:
-  host: '172.27.247.87'
+  host: '127.0.0.1'
   port: 2525
   timeout: 5
 
 server_params:
-  backend: def_b
-  server: test1
+  backend: test_backend
+  server: test_server_1
 
 server_state_down: maint
 server_state_up: ready
