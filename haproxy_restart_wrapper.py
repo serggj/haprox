@@ -51,6 +51,27 @@ def get_params():
     return args
 
 
+def retries(func):
+    def wrapper(*args):
+        retries = 3
+        while retries >= 0:
+            try:
+                return func(*args)
+            except StateMismatch:
+                MAIN_LOGGER.warning(Haproxy.color_msg('warn', 'recheck'))
+                retries -= 1
+                if retries == 0:
+                    msg = 'Check is not successful for {0} attempts'.format(retries)
+                    raise RuntimeError(Haproxy.color_msg('err', msg))
+                time.sleep(0.5)
+    return wrapper
+
+
+class StateMismatch(Exception):
+    """ raise where state not equal"""
+    pass
+
+
 class Haproxy(object):
     def __init__(self, host, port, timeout):
         self.host = host
@@ -172,15 +193,18 @@ class Haproxy(object):
             MAIN_LOGGER.error(self.color_msg('err', msg))
             raise RuntimeError(self.color_msg('err', err))
 
+    @retries
     def _check_server_state(self, backend, server, state):
             label = backend + '/' + server
             stats = self.parse_servers_stats()[label]
             status = stats['status']
             if self.enable_states[state] not in status:
+#            if self.enable_states[state] not in 'sdasdasd':
                 msg = 'state server {0} in backend {1} not changed to {2} \n' \
-                      'current state id {3}'\
+                      'current state is {3}'\
                     .format(server, backend, state, status)
-                raise RuntimeError(self.color_msg('err', msg))
+                MAIN_LOGGER.warning(self.color_msg('warn', msg))
+                raise StateMismatch
             else:
                 msg = 'state server {0} in backend {1} changed to {2}'\
                     .format(server, backend, status)
