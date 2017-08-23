@@ -4,12 +4,37 @@ import logging
 import StringIO
 import csv
 import json
+import sys
+import time
+import subprocess
+import yaml
 
 
+# color logging
+logging.addLevelName(
+    logging.ERROR,
+    "\033[1;31m%s\033[1;0m" % logging.getLevelName(logging.ERROR))
+logging.addLevelName(
+    logging.INFO,
+    "\033[1;34m%s\033[1;0m" % logging.getLevelName(logging.INFO))
+logging.addLevelName(
+    logging.WARNING,
+    "\033[1;33m%s\033[1;0m" % logging.getLevelName(logging.WARNING))
+
+
+# log level
 logging.basicConfig(level=logging.INFO)
+MAIN_LOGGER = logging.getLogger('main')
+TELNET_LOGGER = logging.getLogger('telnet')
+MAIN_LOGGER.setLevel('INFO')
+TELNET_LOGGER.setLevel('INFO')
 
 
-class Telnet_Helper(object):
+# config path
+CONFIG_PATH = 'config.yml'
+
+
+class Haproxy(object):
     def __init__(self, host, port, timeout):
         self.host = host
         self.port = port
@@ -29,26 +54,39 @@ class Telnet_Helper(object):
             'maint': 'MAINT',
         }
 
+    @staticmethod
+    def color_msg(level, msg):
+        msg_color_err = '\x1b[31m {} \x1b[0m'
+        msg_color_info = '\x1b[34m {} \x1b[0m'
+        msg_color_warn = '\x1b[33m {} \x1b[0m'
+
+        if level == 'info':
+            return msg_color_info.format(msg)
+        elif level == 'err':
+            return msg_color_err.format(msg)
+        elif level == 'warn':
+            return msg_color_warn.format(msg)
+
     def _validate_state(self, state):
         try:
             self.enable_states[state]
         except KeyError:
-            msg = "unsupported state {0} "\
-                  "supported states are {1}"\
+            msg = "unsupported state {0} " \
+                  "supported states are {1}" \
                   .format(state, self.enable_states.keys())
-            raise RuntimeError(msg)
+            raise RuntimeError(self.color_msg('err', msg))
 
     def _get_tl(self):
         try:
             return Telnet(self.host, self.port, self.timeout)
         except Exception as err:
-            raise RuntimeError(err)
+            raise RuntimeError(self.color_msg('err', err))
 
     def _reconnect(self):
         try:
             self.tl.open(self.host, self.port, self.timeout)
         except Exception as err:
-            raise RuntimeError(err)
+            raise RuntimeError(self.color_msg('err', err))
 
     def _split_data(self, data, delimiter='\n'):
         return data.split(delimiter)
@@ -63,24 +101,24 @@ class Telnet_Helper(object):
         try:
             self._reconnect()
             self.tl.write(data)
-            logging.info('send telnet data {}'.format(repr(data)))
+            TELNET_LOGGER.debug('send telnet data {}'.format(repr(data)))
         except Exception as err:
-            raise RuntimeError(err)
+            raise RuntimeError(self.color_msg('err', err))
 
     def read_all(self, split=True, cut=None):
         try:
             res = self.tl.read_all()
             if res:
-                logging.info('data read succesfull')
+                TELNET_LOGGER.debug('data read succesfull')
                 if cut:
                     res = res[cut:]
                 if split:
                     res = self._split_data(res)
                 return res
             else:
-                logging.warning('no data fo read')
+                TELNET_LOGGER.warning('no data fo read')
         except Exception as err:
-            raise RuntimeError(err)
+            raise RuntimeError(self.color_msg('err', err))
 
     @staticmethod
     def parse(data, servers_names=[], backends=[], get_all=False):
@@ -105,29 +143,30 @@ class Telnet_Helper(object):
 
     def _check_server_exists(self, backend, server):
         try:
-            logging.info('check server exists')
+            msg = 'Check server {0}/{1} exists'.format(backend, server)
+            MAIN_LOGGER.info(self.color_msg('info', msg))
             self.parse_servers_stats()[backend + '+' + server]
-            logging.info('Ok server {0} exist in backend {1}'\
+            msg = 'Ok server {0} exist in backend {1}' \
                 .format(server, backend)
-            )
+            MAIN_LOGGER.info(self.color_msg('info', msg))
         except KeyError as err:
-            logging.error(
-                'server {0} not found in backend {1}'.format(server, backend))
-            raise RuntimeError(err)
+            msg = 'server {0} not found in backend {1}'.format(server, backend)
+            MAIN_LOGGER.error(self.color_msg('err', msg))
+            raise RuntimeError(self.color_msg('err', err))
 
-    def _check_server_status(self, backend, server, state):
+    def _check_server_state(self, backend, server, state):
             label = backend + '+' + server
             stats = self.parse_servers_stats()[label]
             status = stats['status']
             if self.enable_states[state] not in status:
-                msg = 'state server {0} in backend {1} not changed to {2} \n'\
+                msg = 'state server {0} in backend {1} not changed to {2} \n' \
                       'current state id {3}'\
                     .format(server, backend, state, status)
-                raise RuntimeError(msg)
+                raise RuntimeError(self.color_msg('err', msg))
             else:
                 msg = 'state server {0} in backend {1} changed to {2}'\
                     .format(server, backend, status)
-                logging.info(msg)
+                MAIN_LOGGER.info(self.color_msg('info', msg))
 
     def set_server_state(self, backend, server, state):
             self._validate_state(state)
@@ -135,7 +174,7 @@ class Telnet_Helper(object):
             set_cmd = self.set_state_template.format(
                 backend=backend, server=server, state=state)
             self.write(set_cmd)
-            self._check_server_status(backend, server, state)
+            self._check_server_state(backend, server, state)
 
     def servers_stats(self):
         self.write('show stat\n')
@@ -162,12 +201,29 @@ class Telnet_Helper(object):
     def json_out(data):
         print json.dumps(data, indent=4)
 
-    def waitind_close_sessions(self, backend, server):
-        loggin.info('witing {0}/{1} sessions close')
-        logging.info('curren sessions')
+    def waiting_close_sessions(self, backend, server):
+        msg = 'Waiting {0}/{1} sessions close' \
+            .format(backend, server)
+        MAIN_LOGGER.info(self.color_msg('info', msg))
         label = backend + '+' + server
         stats = self.parse_servers_stats()[label]
+        sessions = int(stats['scur'])
+        MAIN_LOGGER.info('curren sessions {0}'.format(sessions))
+        while sessions > 0:
+            TELNET_LOGGER.setLevel('WARNING')
+            sys.stdout.write('.')
+            sys.stdout.flush()
+            time.sleep(1)
+            stats = self.parse_servers_stats()[label]
+            sessions = int(stats['scur'])
+        sys.stdout.write('\n')
+        TELNET_LOGGER.setLevel('INFO')
+        MAIN_LOGGER.info(self.color_msg('info', 'waiting complete'))
+        MAIN_LOGGER.info(
+            self.color_msg('info', 'current sessions {0}'.format(sessions)))
 
+    def json_states(self):
+        self.json_out(self.get_servers_keys())
 
     def close(self):
         if self.tl:
@@ -177,18 +233,35 @@ class Telnet_Helper(object):
         self.close()
 
 
-# set server <backend>/<server> state [ ready | drain | maint ]
+def call_cmd(cmd):
+    msg = 'run cmd "{}"'.format(cmd)
+    MAIN_LOGGER.info(Haproxy.color_msg('info', msg))
+    try:
+        subprocess.check_call(cmd, shell=True)
+    except subprocess.CalledProcessError as err:
+        raise RuntimeError(Haproxy.color_msg('err', err))
+
+
+def load_config(config_file):
+    try:
+        with open(config_file, 'r') as stream:
+            config = yaml.load(stream)
+        return config
+    except IOError as err:
+        msg = "Config file not found: {}".format(err)
+        raise RuntimeError(Haproxy.color_msg('err', msg))
+
+
+def main():
+    config = load_config(CONFIG_PATH)
+    haproxy_params = config['haproxy_params']
+    server_params = config['server_params']
+    haproxy = Haproxy(**haproxy_params)
+    haproxy.set_server_state(state='drain', **server_params)
+    haproxy.waiting_close_sessions(**server_params)
+    call_cmd('echo 1')
+    haproxy.set_server_state(state='ready', **server_params)
+
+
 if __name__ == '__main__':
-    params = {
-        'host': '172.27.247.87',
-        'port': 2525,
-        'timeout': 5
-    }
-    th = Telnet_Helper(**params)
-    #th.write('show stat\n')
-    #r = th.read_all(False, 2)
-    #r = th.read_str_as_csv(r)
-    #p = th.parse(r, ['test1', 'test2'], ['def_b'], True)
-    th.json_out(th.get_servers_keys())
-    th.set_server_state('def_b', 'test1', 'drain')
-    #th.set_server_state('def_b', 'test1', 'ready')
+    main()
