@@ -7,3 +7,8 @@ haproxy_params:
 server_params:
   backend: def_b
   server: test1
+
+server_state_down: maint
+server_state_up: ready
+
+restart_cmd: 'echo 1'

@@ -8,6 +8,7 @@ import sys
 import time
 import subprocess
 import yaml
+import argparse
 
 
 # color logging
@@ -31,7 +32,23 @@ TELNET_LOGGER.setLevel('INFO')
 
 
 # config path
-CONFIG_PATH = 'config.yml'
+parser = argparse.ArgumentParser(
+    description="haproxy_restart_wrapper %(prog)s",
+    epilog="epilog %(prog)s",
+    prog="haproxy_restart_wrapper.py")
+
+
+# functions
+def get_params():
+    parser.add_argument(
+        "-f", "--config-file",
+        dest="config_file",
+        default='config.yml',
+        metavar='config.yml',
+        help="path to user config.\nDefault config.yml")
+
+    args = parser.parse_args()
+    return args
 
 
 class Haproxy(object):
@@ -46,7 +63,8 @@ class Haproxy(object):
             'pxname',
             'svname',
             'status',
-            'scur'
+            'scur',
+            'check_status'
         ]
         self.enable_states = {
             'ready': 'UP',
@@ -128,7 +146,7 @@ class Haproxy(object):
                 svname = row.get('svname')
                 if svname:
                     if svname != 'BACKEND' and svname != 'FRONTEND':
-                        label = row['pxname'] + '+' + svname
+                        label = row['pxname'] + '/' + svname
                         total_res[label] = row
         else:
             for row in data:
@@ -136,7 +154,7 @@ class Haproxy(object):
                     if row.get('pxname', '') == backend:
                         for server_name in servers_names:
                             if row.get('svname', '') == server_name:
-                                label = row['pxname'] + '+' + server_name
+                                label = row['pxname'] + '/' + server_name
                                 total_res[label] = row
 
         return total_res
@@ -145,7 +163,7 @@ class Haproxy(object):
         try:
             msg = 'Check server {0}/{1} exists'.format(backend, server)
             MAIN_LOGGER.info(self.color_msg('info', msg))
-            self.parse_servers_stats()[backend + '+' + server]
+            self.parse_servers_stats()[backend + '/' + server]
             msg = 'Ok server {0} exist in backend {1}' \
                 .format(server, backend)
             MAIN_LOGGER.info(self.color_msg('info', msg))
@@ -155,7 +173,7 @@ class Haproxy(object):
             raise RuntimeError(self.color_msg('err', err))
 
     def _check_server_state(self, backend, server, state):
-            label = backend + '+' + server
+            label = backend + '/' + server
             stats = self.parse_servers_stats()[label]
             status = stats['status']
             if self.enable_states[state] not in status:
@@ -205,7 +223,7 @@ class Haproxy(object):
         msg = 'Waiting {0}/{1} sessions close' \
             .format(backend, server)
         MAIN_LOGGER.info(self.color_msg('info', msg))
-        label = backend + '+' + server
+        label = backend + '/' + server
         stats = self.parse_servers_stats()[label]
         sessions = int(stats['scur'])
         MAIN_LOGGER.info('curren sessions {0}'.format(sessions))
@@ -224,6 +242,7 @@ class Haproxy(object):
 
     def json_states(self):
         self.json_out(self.get_servers_keys())
+        #self.json_out(self.parse_servers_stats())
 
     def close(self):
         if self.tl:
@@ -253,14 +272,19 @@ def load_config(config_file):
 
 
 def main():
-    config = load_config(CONFIG_PATH)
+    config_file = get_params().config_file
+    config = load_config(config_file)
     haproxy_params = config['haproxy_params']
     server_params = config['server_params']
+    server_state_down = config['server_state_down']
+    server_state_up = config['server_state_up']
+    restart_cmd = config['restart_cmd']
     haproxy = Haproxy(**haproxy_params)
-    haproxy.set_server_state(state='drain', **server_params)
+    haproxy.set_server_state(state=server_state_down, **server_params)
     haproxy.waiting_close_sessions(**server_params)
-    call_cmd('echo 1')
-    haproxy.set_server_state(state='ready', **server_params)
+    call_cmd(restart_cmd)
+    haproxy.set_server_state(state=server_state_up, **server_params)
+    haproxy.json_states()
 
 
 if __name__ == '__main__':
