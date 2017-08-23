@@ -21,6 +21,7 @@ Options
   -h, --help            show this help message and exit
   -f config.yml, --config-file config.yml
                         path to user config. Default /etc/haproxy_restart_wrapper/config.yml
+  --version             show script version
 ```
 
 Examples

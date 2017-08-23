@@ -10,6 +10,7 @@ import subprocess
 import yaml
 import argparse
 
+__version__ = '0.1'
 
 # color logging
 logging.addLevelName(
@@ -47,6 +48,13 @@ def get_params():
         metavar='config.yml',
         help="path to user config.\n" \
              "Default /etc/haproxy_restart_wrapper/config.yml")
+
+    parser.add_argument(
+        "--version",
+        dest="version",
+        action='store_true',
+        default=False,
+        help="show script version")
 
     args = parser.parse_args()
     return args
@@ -297,7 +305,13 @@ def load_config(config_file):
 
 
 def main():
-    config_file = get_params().config_file
+    params = get_params()
+    config_file = params.config_file
+    version = params.version
+    if version:
+        print __version__
+        sys.exit(0)
+
     config = load_config(config_file)
     haproxy_params = config['haproxy_params']
     server_params = config['server_params']
