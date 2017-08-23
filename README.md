@@ -1,8 +1,11 @@
 INTRO
 =====
+Обертка для изменения состояния backenda haproxy перед рестартом.    
+Для работы нужно: 
+- добавить праметры в конфиг
+- сконфигурировать socket для haproxy [stats socket {host}:{port} level admin](http://cbonte.github.io/haproxy-dconv/1.6/management.html#9.2)
+- разешить подключения через firewall
 
-Обертка для изменения состояния backenda haproxy перед рестартом
-Для работы нужно добавить праметры в конфиг
 
 ### Requirements
 * python >= 2.7
