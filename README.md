@@ -12,8 +12,7 @@ INTRO
 * python-yaml
 
         apt-get install python python-yaml
-        pip install pyapi-gitlab --user
-
+       
 
 Options
 -------
